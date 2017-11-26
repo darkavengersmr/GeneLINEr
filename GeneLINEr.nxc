@@ -1,0 +1,265 @@
+//иницилизируем переменные
+byte fh;
+int msg_len;
+string logstr;
+float max_speed;
+//создаЄм шаблон особи
+struct person
+{
+  // у каждой особи должно быть им€
+  string name;
+  // номер поколени€, в котором родилась данна€ особь
+  int generation;
+  //проворность особи
+  float speed;
+  //реакци€ особи
+  float reaction;
+  //мудрость особи
+  float memory;
+  //интуици€ особи
+  float intuition;
+  //жизненный путь особи
+  long path;
+  //доминнантность особи
+  float dominance;
+};
+//создаЄм заготовки из 6 особей дл€ родителей и потомков
+person robot[6];
+person robot_next_generation[6];
+//промежуточна€ особь дл€ ранжировани€
+person robot_tmp;
+//функци€ дл€ мутации
+void mutants(){
+  int property=0;
+  int mutant=0;
+  //случайный робот и признак мутирует
+  mutant=Random(5);
+  property=Random(3);
+  if(mutant<4){
+    //разные мутации дл€ особей разной доминантности
+    switch(property)
+    {
+       case 0:
+                robot_next_generation[mutant].speed = max_speed+5;
+                break;
+       case 1:
+                robot_next_generation[mutant].reaction =robot_next_generation[mutant].reaction *((Random(40)+80)/100.0);
+                break;
+       case 2:
+                robot_next_generation[mutant].memory =robot_next_generation[mutant].memory *((Random(40)+80)/100.0);
+                break;
+       case 3:
+                robot_next_generation[mutant].intuition = robot_next_generation[mutant].intuition *((Random(40)+80)/100.0);
+                break;
+       default:
+                break;
+    }
+
+  }
+  else{
+    switch(property)
+    {
+       case 0:
+                robot_next_generation[mutant].speed = max_speed+5;
+                break;
+       case 1:
+                robot_next_generation[mutant].reaction = Random(4000)/1000;
+                break;
+       case 2:
+                robot_next_generation[mutant].memory = Random(50)/1000;
+                break;
+       case 3:
+                robot_next_generation[mutant].intuition = Random(4000)/1000;
+                break;
+       default:
+                break;
+    }
+  }
+}
+//функци€ дл€ возрата на линию использу€ PID регул€тор
+void go_to_line(){
+  int B=0;
+  int C=0;
+  float P=1.000;
+  float D=1.000;
+  float ERRo=0;
+  float ERR=0;
+  float u=0;
+  while(abs(Sensor(IN_2)-Sensor(IN_3))>5){
+    int ERR=Sensor(IN_3)-Sensor(IN_2);
+    int u=P*ERR+D*(ERR-ERRo);
+    int z1=-u;
+    int z2=+u;
+    if(-u>100)z1=100;
+    if(-u<-100)z1=-100;
+    if(+u>100)z2=100;
+    if(+u<-100)z2=-100;
+    OnFwd(OUT_B,z1);
+    OnFwd(OUT_C,z2);
+  }
+}
+//функци€ дл€ рождени€ нового робота
+person newburn(person male, person female){
+  person newburn;
+  male.dominance = 1 - (male.dominance/(male.dominance+female.dominance));
+  female.dominance = 1 - male.dominance;
+  newburn.name = "Robot_"+NumToStr(Random(1000));
+  newburn.generation=male.generation+1;
+  if(male.speed>female.speed){
+    newburn.speed = male.speed;
+  }
+  else{
+    newburn.speed=female.speed;
+  }
+  newburn.reaction = male.reaction * male.dominance + female.reaction * female.dominance;
+  newburn.reaction =newburn.reaction *((Random(40)+80)/100.0);
+  newburn.memory = male.memory * male.dominance + female.memory * female.dominance;
+  newburn.memory =newburn.memory *((Random(40)+80)/100.0);
+  newburn.intuition = male.intuition * male.dominance + female.intuition * female.dominance;
+  newburn.intuition = newburn.intuition *((Random(40)+80)/100.0);
+  newburn.path = 0;
+  //устанавливаем максимальную скорость
+  if(newburn.speed>max_speed){
+    max_speed=newburn.speed;
+  }
+  return newburn;
+}
+//функци€ дл€ испытани€ особи в течении 5 секунд или пока робот не слетит с трассы в этом случае возращаемс€ на линию
+long pid(float Pk,float Dk,float Ik,int speed){
+  long B=0;
+  long C=0;
+  long path=0;
+  long MC=MotorRotationCount(OUT_C);
+  long MB=MotorRotationCount(OUT_B);
+  long e = 0;
+  int porog23=45;
+  int porog14=32;
+  float ERRo=0;
+  float ERR=0;
+  float u=0;
+  float z1=0;
+  float z2=0;
+  long tmp=CurrentTick();
+  int p;
+  int i;
+  int d;
+  while(CurrentTick()-tmp<=10000){
+    MC=MotorRotationCount(OUT_C);
+    MB=MotorRotationCount(OUT_B);
+    ERR=Sensor(IN_3)-Sensor(IN_2);
+    p=Pk*ERR;
+    d=Dk*(ERR-ERRo);
+    i=Ik*e;
+    if(i>10)i=10;
+    if(i<-10)i= -10;
+    u=p+i+d;
+    z1=speed-u;
+    z2=speed+u;
+    if(speed-u>100)z1=100;
+    if(speed-u<-100)z1=-100;
+    if(speed+u>100)z2=100;
+    if(speed+u<-100)z2=-100;
+    OnFwd(OUT_B,z1);
+    OnFwd(OUT_C,z2);
+    if(Sensor(IN_1)<=porog14){
+      Off(OUT_BC);
+      OnFwd(OUT_B,-15);
+      OnFwd(OUT_C,15);
+      while(Sensor(IN_3)>porog23);
+      Off(OUT_BC);
+      PlayTone(TONE_C5, MS_500);
+      go_to_line();
+      break;
+    }
+    if(Sensor(IN_4)<=porog14){
+      Off(OUT_BC);
+      OnFwd(OUT_C,-15);
+      OnFwd(OUT_B,15);
+      while(Sensor(IN_2)>porog23);
+      Off(OUT_BC);
+      PlayTone(TONE_C5, MS_500);
+      go_to_line();
+      break;
+    }
+    ERRo=ERR;
+    e+=ERR;
+    //определение длины жизненного пути особи
+    B=MotorRotationCount(OUT_B)-MB;
+    C=MotorRotationCount(OUT_C)-MC;
+    if(B>0 && C>0){
+      if(B<C){
+        path+=B;
+      }
+      else{
+        path+=C;
+      }
+    }
+  }
+  Off(OUT_BC);
+  return path;
+}
+task main(){
+  //удал€ем и создаЄм файл со статистикой эволюции
+  DeleteFile("evolution.csv");
+  CreateFile("evolution.csv", 4096, fh);
+  //иницилизируем датчики
+  SetSensorLight(IN_2);
+  SetSensorLight(IN_3);
+  SetSensorColorGreen(IN_1);
+  SetSensorColorGreen(IN_4);
+  //создаЄм первую попул€цию
+  for(int i=0;i<6;i++){
+    robot[i].name = "Robot_"+NumToStr(Random(1000));
+    robot[i].generation=1;
+    robot[i].speed = Random(70)+30;
+    robot[i].reaction = Random(4000)/1000;
+    robot[i].memory = Random(50)/1000;
+    robot[i].intuition = Random(4000)/1000;
+    robot[i].path = 0;
+    robot[i].dominance=0;
+  }
+  //основной цикл эволюции
+  while(true){
+    //даЄм испытание каждой особи
+    for (int i=5;i>=0;i--){
+      robot[i].path = pid(robot[i].reaction,robot[i].intuition,robot[i].memory,robot[i].speed);
+      PlayTone(TONE_A4, MS_500);
+    }
+    //ранжируем особи пузырьковой сортировкой
+    for (int i=0;i<5;i++){
+      for (int j=0;j<(5-i);j++){
+        if(robot[j].path < robot[j+1].path){
+          robot_tmp = robot[j];
+          robot[j]=robot[j+1];
+          robot[j+1]= robot_tmp;
+        }
+      }
+    }
+    //даЄм признак доминантности
+    for (int i=0;i<6;i++){
+      robot[i].dominance=i+1;
+    
+    }
+    //????????
+    //из 4 лучших происходит скрещивание и мутаци€
+    robot_next_generation[0] = newburn(robot[0],robot[1]);
+    robot_next_generation[1] = newburn(robot[0],robot[2]);
+    robot_next_generation[2] = newburn(robot[0],robot[3]);
+    robot_next_generation[3] = newburn(robot[1],robot[2]);
+    robot_next_generation[4] = newburn(robot[1],robot[3]);
+    robot_next_generation[5] = newburn(robot[2],robot[3]);
+    mutants();
+    //потомки замен€ют родителей а тагже запись в файл
+    for(int i=0;i<6;i++){
+
+      logstr = robot[i].name;
+      logstr = logstr + ";" + NumToStr(robot[i].generation);
+      logstr = logstr + ";" + NumToStr(robot[i].reaction) +";"+NumToStr(robot[i].memory)+";"+NumToStr(robot[i].intuition);
+      logstr = logstr + ";" + NumToStr(robot[i].path)+";"+NumToStr(robot[i].speed);
+      msg_len = StrLen(logstr);
+      WriteLnString(fh, logstr, msg_len);
+      PlaySound(SOUND_DOUBLE_BEEP);
+      robot[i]=robot_next_generation[i];
+    }
+  }
+}
